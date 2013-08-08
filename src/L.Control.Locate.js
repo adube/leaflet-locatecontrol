@@ -50,13 +50,19 @@ L.Control.Locate = L.Control.extend({
             popup: "You are within {distance} {unit} from this point",
             outsideMapBoundsMsg: "You seem located outside the boundaries of the map"
         },
-        locateOptions: {}
+        locateOptions: {},
+        // dual-accuracy additional options
+        useGPS: true,
+        useWifi: true,
+        stopLocate: null,
     },
 
     onAdd: function (map) {
         var className = 'leaflet-control-locate',
             classNames = className + ' leaflet-bar leaflet-control',
             container = L.DomUtil.create('div', classNames);
+
+        alert("version 2");
 
         var self = this;
         this._layer = new L.LayerGroup();
@@ -84,32 +90,50 @@ L.Control.Locate = L.Control.extend({
         link.href = '#';
         link.title = this.options.strings.title;
 
+       var onClick = function() {
+            if (self._active && (map.getBounds().contains(self._event.latlng) || !self.options.setView ||
+                isOutsideMapBounds())) {
+                stopLocate();
+            } else if (self.options.useGPS || self.options.useWifi){
+                if (self.options.setView) {
+                    self._locateOnNextLocationFound = true;
+                }
+                if(!self._active) {
+                    locate(self._locateOptions);
+                }
+                self._active = true;
+                if (self.options.follow) {
+                    startFollowing();
+                }
+                if (!self._event) {
+                    self._container.className = classNames + " requesting";
+                } else {
+                    visualizeLocation();
+                }
+            }
+        };
+
         L.DomEvent
             .on(link, 'click', L.DomEvent.stopPropagation)
             .on(link, 'click', L.DomEvent.preventDefault)
-            .on(link, 'click', function() {
-                if (self._active && (map.getBounds().contains(self._event.latlng) || !self.options.setView ||
-                    isOutsideMapBounds())) {
-                    stopLocate();
-                } else {
-                    if (self.options.setView) {
-                        self._locateOnNextLocationFound = true;
-                    }
-                    if(!self._active) {
-                        map.locate(self._locateOptions);
-                    }
-                    self._active = true;
-                    if (self.options.follow) {
-                        startFollowing();
-                    }
-                    if (!self._event) {
-                        self._container.className = classNames + " requesting";
-                    } else {
-                        visualizeLocation();
-                    }
-                }
-            })
+            .on(link, 'click', onClick)
             .on(link, 'dblclick', L.DomEvent.stopPropagation);
+
+        var locate = function(locateOptions) {
+            if (self.options.useWifi) {
+                if (self.options.useGPS) {
+                    // use both
+                    map.locate(locateOptions);
+                    map.highAccuracyLocate(locateOptions);
+                } else {
+                    // use wifi only
+                    map.locate(locateOptions);
+                }
+            } else if (self.options.useGPS) {
+                // use gps only
+                map.highAccuracyLocate(locateOptions);
+            }
+        };
 
         var onLocationFound = function (e) {
             // no need to do anything if the location has not changed
@@ -124,6 +148,17 @@ L.Control.Locate = L.Control.extend({
             }
 
             self._event = e;
+
+            if (e.type == "highaccuracylocationfound" &&
+                self.options.useGPS &&
+                self.options.useWifi) {
+                self._locateOnNextLocationFound = true;
+                if (self.options.follow && self._following &&
+                    map._locationWatchId) {
+                    map.stopLocate();
+                    map._locationWatchId = null;
+                }
+            }
 
             if (self.options.follow && self._following) {
                 self._locateOnNextLocationFound = true;
@@ -232,6 +267,7 @@ L.Control.Locate = L.Control.extend({
 
         var stopLocate = function() {
             map.stopLocate();
+            map.stopHighAccuracyLocate();
             map.off('dragstart', stopFollowing);
 
             self._container.className = classNames;
@@ -241,6 +277,7 @@ L.Control.Locate = L.Control.extend({
             self._circleMarker = undefined;
             self._circle = undefined;
         };
+        self.stopLocate = stopLocate;
 
         var onLocationError = function (err) {
             // ignore time out error if the location is watched
@@ -255,6 +292,8 @@ L.Control.Locate = L.Control.extend({
         // event hooks
         map.on('locationfound', onLocationFound, self);
         map.on('locationerror', onLocationError, self);
+        map.on('highaccuracylocationfound', onLocationFound, self);
+        map.on('highaccuracylocationerror', onLocationError, self);
 
         return container;
     }
