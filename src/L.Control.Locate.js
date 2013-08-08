@@ -62,8 +62,6 @@ L.Control.Locate = L.Control.extend({
             classNames = className + ' leaflet-bar leaflet-control',
             container = L.DomUtil.create('div', classNames);
 
-        alert("version 2");
-
         var self = this;
         this._layer = new L.LayerGroup();
         this._layer.addTo(map);
